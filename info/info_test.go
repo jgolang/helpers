@@ -3,19 +3,19 @@ package info
 import "testing"
 
 type test struct {
-	Test           string
-	AdditionalInfo AdditionalInfo
+	Test string
+	Info Info
 }
 
-func TestAdditionalInfo_Set(t *testing.T) {
-	info := &AdditionalInfo{}
+func TestInfo_Set(t *testing.T) {
+	info := &Info{}
 	type args struct {
 		key   string
 		value interface{}
 	}
 	tests := []struct {
 		name string
-		data *AdditionalInfo
+		data *Info
 		args args
 	}{
 		{
@@ -47,7 +47,7 @@ func TestAdditionalInfo_Set(t *testing.T) {
 
 func TestStructAdditonalInfo(t *testing.T) {
 	var info test
-	info.AdditionalInfo.Set("key", "value")
-	t.Log(info.AdditionalInfo)
-	t.Log(info.AdditionalInfo.GetString("key"))
+	info.Info.Set("key", "value")
+	t.Log(info.Info)
+	t.Log(info.Info.GetString("key"))
 }
