@@ -1,3 +1,3 @@
 module github.com/jgolang/helpers
 
-go 1.20
+go 1.26.2
