@@ -82,9 +82,11 @@ func validateKey(key interface{}) error {
 		return fmt.Errorf("container: key cannot be nil")
 	}
 
-	keyType := reflect.TypeOf(key)
-	if !keyType.Comparable() {
-		return fmt.Errorf("container: key type %s is not comparable", keyType)
+	// Value.Comparable also inspects dynamic values held in interface fields
+	// and array elements, which Type.Comparable cannot see and which would
+	// make the map insertion or lookup panic.
+	if !reflect.ValueOf(key).Comparable() {
+		return fmt.Errorf("container: key type %s is not comparable", reflect.TypeOf(key))
 	}
 
 	return nil
