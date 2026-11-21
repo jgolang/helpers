@@ -2,6 +2,8 @@ package async
 
 import (
 	"errors"
+	"reflect"
+	"sync"
 	"testing"
 )
 
@@ -266,5 +268,276 @@ func TestContainerGetMissingKeyQuotesKey(t *testing.T) {
 				t.Fatalf("Get() error = %v, want %s", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestContainerGetConcurrentSliceWritesDoNotRace(t *testing.T) {
+	container := &Container{}
+	container.Set("numbers", []int{0}, nil)
+
+	var wg sync.WaitGroup
+	for writer := 1; writer <= 2; writer++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			var got []int
+			if err := container.Get("numbers", &got); err != nil {
+				t.Errorf("Get() error = %v", err)
+				return
+			}
+			got[0] = writer
+		}()
+	}
+	wg.Wait()
+
+	var got []int
+	if err := container.Get("numbers", &got); err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if !reflect.DeepEqual(got, []int{0}) {
+		t.Fatalf("Get() = %v, want [0]", got)
+	}
+}
+
+func TestContainerGetConcurrentMapWritesDoNotRace(t *testing.T) {
+	container := &Container{}
+	container.Set("groups", map[string][]int{"a": {0}}, nil)
+
+	var wg sync.WaitGroup
+	for writer := 1; writer <= 2; writer++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			var got map[string][]int
+			if err := container.Get("groups", &got); err != nil {
+				t.Errorf("Get() error = %v", err)
+				return
+			}
+			got["b"] = []int{writer}
+			got["a"][0] = writer
+		}()
+	}
+	wg.Wait()
+
+	var got map[string][]int
+	if err := container.Get("groups", &got); err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if want := map[string][]int{"a": {0}}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Get() = %v, want %v", got, want)
+	}
+}
+
+type copyTarget struct {
+	Name   string
+	Items  []int
+	Attrs  map[string]int
+	Parent *copyTarget
+}
+
+type copyIDs []int
+
+// getAndMutate reads key into a fresh T and mutates what it received.
+func getAndMutate[T any](mutate func(got *T)) func(c *Container) error {
+	return func(c *Container) error {
+		var got T
+		if err := c.Get("key", &got); err != nil {
+			return err
+		}
+		mutate(&got)
+		return nil
+	}
+}
+
+func TestContainerGetResultIsIndependentOfStoredValue(t *testing.T) {
+	tests := []struct {
+		name string
+		// build returns a fresh copy of the stored value on every call, so
+		// one copy is stored and another is the expected content.
+		build     func() interface{}
+		getMutate func(c *Container) error
+	}{
+		{
+			name:  "slice",
+			build: func() interface{} { return []int{1, 2, 3} },
+			getMutate: getAndMutate(func(got *[]int) {
+				(*got)[0] = 9
+			}),
+		},
+		{
+			name:  "map of slices",
+			build: func() interface{} { return map[string][]int{"a": {1}} },
+			getMutate: getAndMutate(func(got *map[string][]int) {
+				(*got)["a"][0] = 9
+				(*got)["b"] = []int{2}
+			}),
+		},
+		{
+			name: "pointer to struct",
+			build: func() interface{} {
+				return &copyTarget{Name: "n", Items: []int{1}, Attrs: map[string]int{"a": 1}, Parent: &copyTarget{Name: "p"}}
+			},
+			getMutate: getAndMutate(func(got **copyTarget) {
+				(*got).Name = "changed"
+				(*got).Items[0] = 9
+				(*got).Attrs["a"] = 9
+				(*got).Parent.Name = "changed"
+			}),
+		},
+		{
+			name: "struct with reference fields",
+			build: func() interface{} {
+				return copyTarget{Items: []int{1}, Attrs: map[string]int{"a": 1}, Parent: &copyTarget{Name: "p"}}
+			},
+			getMutate: getAndMutate(func(got *copyTarget) {
+				got.Items[0] = 9
+				got.Attrs["a"] = 9
+				got.Parent.Name = "changed"
+			}),
+		},
+		{
+			name:  "slice of interfaces into interface",
+			build: func() interface{} { return []interface{}{[]int{1}, map[string]interface{}{"a": 1}} },
+			getMutate: getAndMutate(func(got *interface{}) {
+				values := (*got).([]interface{})
+				values[0].([]int)[0] = 9
+				values[1].(map[string]interface{})["a"] = 9
+			}),
+		},
+		{
+			name:  "map of interfaces into concrete type",
+			build: func() interface{} { return map[string]interface{}{"list": []interface{}{1, "x"}} },
+			getMutate: getAndMutate(func(got *map[string]interface{}) {
+				(*got)["list"].([]interface{})[0] = 9
+				(*got)["new"] = true
+			}),
+		},
+		{
+			name:  "named slice converted to slice",
+			build: func() interface{} { return copyIDs{1, 2} },
+			getMutate: getAndMutate(func(got *[]int) {
+				(*got)[0] = 9
+			}),
+		},
+		{
+			name:  "slice converted to array pointer",
+			build: func() interface{} { return []int{1, 2, 3, 4, 5} },
+			getMutate: getAndMutate(func(got **[4]int) {
+				(*got)[0] = 9
+			}),
+		},
+		{
+			name:  "nil references stay nil",
+			build: func() interface{} { return []interface{}{nil, copyTarget{}, []int(nil), map[string]int(nil)} },
+			getMutate: getAndMutate(func(got *[]interface{}) {
+				(*got)[0] = 9
+			}),
+		},
+		{
+			name:  "int",
+			build: func() interface{} { return 42 },
+			getMutate: getAndMutate(func(got *int) {
+				*got = 9
+			}),
+		},
+		{
+			name:  "string",
+			build: func() interface{} { return "value" },
+			getMutate: getAndMutate(func(got *string) {
+				*got = "changed"
+			}),
+		},
+		{
+			name:  "flat struct",
+			build: func() interface{} { return struct{ A, B int }{1, 2} },
+			getMutate: getAndMutate(func(got *struct{ A, B int }) {
+				got.A = 9
+			}),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			container := &Container{}
+			container.Set("key", tt.build(), nil)
+			want := tt.build()
+
+			if err := tt.getMutate(container); err != nil {
+				t.Fatalf("Get() error = %v", err)
+			}
+			var got interface{}
+			if err := container.Get("key", &got); err != nil {
+				t.Fatalf("second Get() error = %v", err)
+			}
+
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("second Get() = %#v, want %#v", got, want)
+			}
+		})
+	}
+}
+
+type cyclicNode struct {
+	Name string
+	Next *cyclicNode
+}
+
+func TestContainerGetCopiesSelfReferencingPointer(t *testing.T) {
+	stored := &cyclicNode{Name: "loop"}
+	stored.Next = stored
+	container := &Container{}
+	container.Set("key", stored, nil)
+
+	var got *cyclicNode
+	err := container.Get("key", &got)
+
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if got == stored || got.Next != got || got.Name != "loop" {
+		t.Fatalf("Get() = %p (next %p), stored %p; want a new self-referencing node", got, got.Next, stored)
+	}
+}
+
+func TestContainerGetCopiesSelfReferencingSlice(t *testing.T) {
+	stored := make([]interface{}, 1)
+	stored[0] = stored
+	container := &Container{}
+	container.Set("key", stored, nil)
+
+	var got []interface{}
+	err := container.Get("key", &got)
+
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	inner := got[0].([]interface{})
+	if &got[0] == &stored[0] || &inner[0] != &got[0] {
+		t.Fatalf("Get() did not return a new self-referencing slice")
+	}
+}
+
+func TestContainerGetStructWithUnexportedField(t *testing.T) {
+	type withHidden struct {
+		Name  string
+		Items []int
+		items []int
+	}
+	stored := withHidden{Name: "n", Items: []int{1}, items: []int{2}}
+	container := &Container{}
+	container.Set("key", stored, nil)
+
+	var got withHidden
+	err := container.Get("key", &got)
+
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if got.Name != "n" || &got.Items[0] == &stored.Items[0] {
+		t.Fatalf("Get() = %+v; want exported fields deep-copied", got)
+	}
+	// Unexported fields cannot be set through reflect, so they stay shared.
+	if &got.items[0] != &stored.items[0] {
+		t.Fatalf("Get() copied the unexported field; documented as shared")
 	}
 }

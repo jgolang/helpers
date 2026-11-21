@@ -15,6 +15,8 @@ type Container struct {
 }
 
 // Set stores a value and optional error for a key.
+// The container keeps value as given, so the caller must not modify it after
+// storing it.
 // It panics if the key is nil or not comparable; prefer TrySet when the key is not trusted.
 func (c *Container) Set(key interface{}, value interface{}, err error) {
 	if err := c.TrySet(key, value, err); err != nil {
@@ -23,6 +25,8 @@ func (c *Container) Set(key interface{}, value interface{}, err error) {
 }
 
 // TrySet stores a value and optional error for a key and returns validation errors.
+// The container keeps value as given, so the caller must not modify it after
+// storing it.
 func (c *Container) TrySet(key interface{}, value interface{}, err error) error {
 	if err := validateKey(key); err != nil {
 		return err
@@ -46,8 +50,16 @@ func (c *Container) TrySet(key interface{}, value interface{}, err error) error 
 	return nil
 }
 
-// Get copies the stored value into value and returns any error associated with the key.
-// value must be a non-nil pointer.
+// Get stores a deep copy of the value stored for key into value and returns
+// any error associated with the key. value must be a non-nil pointer.
+//
+// The copy shares no pointed-to, slice, or map data with the stored value or
+// with other callers, so callers may modify what they receive. Limits:
+//   - unexported struct fields are copied shallowly, so data they reference
+//     stays shared;
+//   - map keys, channels, functions, and unsafe pointers are shared;
+//   - when the stored value is neither assignable nor convertible to the
+//     type value points to, it is decoded through a JSON round trip instead.
 func (c *Container) Get(key interface{}, value interface{}) error {
 	if err := validateKey(key); err != nil {
 		return err
@@ -111,7 +123,7 @@ func assignValue(dst interface{}, src interface{}) error {
 
 	srcValue := reflect.ValueOf(src)
 	if srcValue.Type().AssignableTo(dstElem.Type()) {
-		dstElem.Set(srcValue)
+		dstElem.Set(deepCopy(srcValue))
 		return nil
 	}
 
@@ -119,7 +131,7 @@ func assignValue(dst interface{}, src interface{}) error {
 		if err := checkSliceToArrayLength(srcValue, dstElem.Type()); err != nil {
 			return err
 		}
-		dstElem.Set(srcValue.Convert(dstElem.Type()))
+		dstElem.Set(deepCopy(srcValue).Convert(dstElem.Type()))
 		return nil
 	}
 
