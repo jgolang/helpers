@@ -20,8 +20,8 @@ type referenceKey struct {
 
 // deepCopy returns a copy of v that shares no pointed-to, slice, or map data
 // with v. Unexported struct fields are copied shallowly, because reflect
-// cannot set them without unsafe; map keys, channels, functions, and unsafe
-// pointers are shared.
+// cannot set them without unsafe; pointers to structs with unexported fields,
+// map keys, channels, functions, and unsafe pointers are shared.
 func deepCopy(v reflect.Value) reflect.Value {
 	if !hasReferences(v.Type()) {
 		return v
@@ -51,6 +51,20 @@ func hasReferences(t reflect.Type) bool {
 	}
 }
 
+// hasUnexportedField reports whether t is a struct with at least one
+// unexported field of its own; an embedded unexported struct counts.
+func hasUnexportedField(t reflect.Type) bool {
+	if t.Kind() != reflect.Struct {
+		return false
+	}
+	for i := 0; i < t.NumField(); i++ {
+		if !t.Field(i).IsExported() {
+			return true
+		}
+	}
+	return false
+}
+
 func (c *copier) copy(v reflect.Value) reflect.Value {
 	switch v.Kind() {
 	case reflect.Pointer:
@@ -70,8 +84,11 @@ func (c *copier) copy(v reflect.Value) reflect.Value {
 	}
 }
 
+// copyPointer shares a pointer to a struct with unexported fields: such types
+// usually own internal state (locks, buffers, a strings.Builder's self
+// pointer) that a copy of the pointee would break or duplicate.
 func (c *copier) copyPointer(v reflect.Value) reflect.Value {
-	if v.IsNil() {
+	if v.IsNil() || hasUnexportedField(v.Type().Elem()) {
 		return v
 	}
 

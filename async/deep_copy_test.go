@@ -148,20 +148,50 @@ func TestDeepCopySharesUncopyableKinds(t *testing.T) {
 	}
 }
 
-func TestDeepCopyUnexportedFieldIsShallow(t *testing.T) {
-	type hidden struct {
-		Visible []int
-		hidden  []int
-	}
-	original := hidden{Visible: []int{1}, hidden: []int{2}}
+type hiddenFields struct {
+	Visible []int
+	hidden  []int
+}
+
+func TestDeepCopyCopiesExportedFieldBesideUnexported(t *testing.T) {
+	original := hiddenFields{Visible: []int{1}, hidden: []int{2}}
 
 	got := copyOf(original)
 
 	if &got.Visible[0] == &original.Visible[0] {
 		t.Fatalf("deepCopy() shares the exported field")
 	}
+}
+
+func TestDeepCopyUnexportedFieldIsShallow(t *testing.T) {
+	original := hiddenFields{Visible: []int{1}, hidden: []int{2}}
+
+	got := copyOf(original)
+
 	if &got.hidden[0] != &original.hidden[0] {
 		t.Fatalf("deepCopy() copied the unexported field; documented as shared")
+	}
+}
+
+func TestDeepCopySharesPointerToStructWithUnexportedField(t *testing.T) {
+	original := &hiddenFields{Visible: []int{1}}
+
+	got := copyOf(original)
+
+	if got != original {
+		t.Fatalf("deepCopy() = %p, want the original pointer %p", got, original)
+	}
+}
+
+func TestDeepCopySharesPointerToStructEmbeddingUnexportedStruct(t *testing.T) {
+	type inner struct{ Items []int }
+	type outer struct{ inner }
+	original := &outer{inner{Items: []int{1}}}
+
+	got := copyOf(original)
+
+	if got != original {
+		t.Fatalf("deepCopy() = %p, want the original pointer %p", got, original)
 	}
 }
 

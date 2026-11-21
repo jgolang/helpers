@@ -3,6 +3,7 @@ package async
 import (
 	"errors"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -517,27 +518,58 @@ func TestContainerGetCopiesSelfReferencingSlice(t *testing.T) {
 	}
 }
 
-func TestContainerGetStructWithUnexportedField(t *testing.T) {
-	type withHidden struct {
-		Name  string
-		Items []int
-		items []int
-	}
-	stored := withHidden{Name: "n", Items: []int{1}, items: []int{2}}
+type withHidden struct {
+	Name  string
+	Items []int
+	items []int
+}
+
+func getWithHidden(t *testing.T, stored withHidden) withHidden {
+	t.Helper()
 	container := &Container{}
 	container.Set("key", stored, nil)
 
 	var got withHidden
-	err := container.Get("key", &got)
-
-	if err != nil {
+	if err := container.Get("key", &got); err != nil {
 		t.Fatalf("Get() error = %v", err)
 	}
+	return got
+}
+
+func TestContainerGetStructDeepCopiesExportedFields(t *testing.T) {
+	stored := withHidden{Name: "n", Items: []int{1}, items: []int{2}}
+
+	got := getWithHidden(t, stored)
+
 	if got.Name != "n" || &got.Items[0] == &stored.Items[0] {
 		t.Fatalf("Get() = %+v; want exported fields deep-copied", got)
 	}
+}
+
+func TestContainerGetStructSharesUnexportedFields(t *testing.T) {
+	stored := withHidden{Name: "n", Items: []int{1}, items: []int{2}}
+
+	got := getWithHidden(t, stored)
+
 	// Unexported fields cannot be set through reflect, so they stay shared.
 	if &got.items[0] != &stored.items[0] {
 		t.Fatalf("Get() copied the unexported field; documented as shared")
+	}
+}
+
+func TestContainerGetSharesPointerToStructWithUnexportedFields(t *testing.T) {
+	stored := &strings.Builder{}
+	stored.WriteString("a")
+	container := &Container{}
+	container.Set("key", stored, nil)
+
+	var got *strings.Builder
+	if err := container.Get("key", &got); err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	got.WriteString("b")
+
+	if got != stored {
+		t.Fatalf("Get() = %p, want the stored pointer %p", got, stored)
 	}
 }

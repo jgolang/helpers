@@ -36,7 +36,12 @@ if err := c.TrySet("job", result, nil); err != nil {
 
 `Set` panics when the key is `nil` or not comparable, similar to how an invalid insertion into a regular `map` would fail at runtime.
 
-`Get` returns a deep copy of the stored value, so goroutines can modify what they receive without racing; unexported struct fields are copied shallowly, and map keys, channels and functions are shared. Do not modify a value after storing it.
+`Get` returns a deep copy of the stored value, so goroutines can modify what they receive without racing. Do not modify a value after storing it. Limits of the copy:
+
+- unexported struct fields are copied shallowly, including exported fields promoted from an embedded unexported struct (the embedded field itself is unexported);
+- pointers to structs with unexported fields are shared as-is, since such types usually own internal state (locks, buffers) that a copy would break;
+- map keys, channels, functions and unsafe pointers are shared;
+- when the stored value is neither assignable nor convertible to the destination type, it is decoded through a JSON round trip instead.
 
 ### `txml`
 

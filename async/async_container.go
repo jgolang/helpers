@@ -56,7 +56,11 @@ func (c *Container) TrySet(key interface{}, value interface{}, err error) error 
 // The copy shares no pointed-to, slice, or map data with the stored value or
 // with other callers, so callers may modify what they receive. Limits:
 //   - unexported struct fields are copied shallowly, so data they reference
-//     stays shared;
+//     stays shared; this includes exported fields promoted from an embedded
+//     unexported struct, since the embedded field itself is unexported;
+//   - pointers to structs with unexported fields are shared as-is, since such
+//     types usually own internal state (locks, buffers) that a copy would
+//     break;
 //   - map keys, channels, functions, and unsafe pointers are shared;
 //   - when the stored value is neither assignable nor convertible to the
 //     type value points to, it is decoded through a JSON round trip instead.
@@ -66,22 +70,22 @@ func (c *Container) Get(key interface{}, value interface{}) error {
 	}
 
 	c.mu.RLock()
-	defer c.mu.RUnlock()
-
 	content, ok := c.content[key]
+	storedErr := c.errors[key]
+	c.mu.RUnlock()
+
 	if !ok {
 		return notFoundError(key)
 	}
 
+	// The copy runs outside the lock so that a slow copy does not block
+	// writers; this is safe because the container never mutates a stored
+	// value, it only replaces map entries.
 	if err := assignValue(value, content); err != nil {
 		return err
 	}
 
-	if c.errors != nil && c.errors[key] != nil {
-		return c.errors[key]
-	}
-
-	return nil
+	return storedErr
 }
 
 // notFoundError quotes the key so that a key from untrusted input cannot
