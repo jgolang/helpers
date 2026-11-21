@@ -36,6 +36,13 @@ if err := c.TrySet("job", result, nil); err != nil {
 
 `Set` panics when the key is `nil` or not comparable, similar to how an invalid insertion into a regular `map` would fail at runtime.
 
+`Get` returns a deep copy of the stored value, so goroutines can modify what they receive without racing. Do not modify a value after storing it. Limits of the copy:
+
+- unexported struct fields are copied shallowly, including exported fields promoted from an embedded unexported struct (the embedded field itself is unexported);
+- pointers to structs with unexported fields are shared as-is, since such types usually own internal state (locks, buffers) that a copy would break;
+- map keys, channels, functions and unsafe pointers are shared;
+- when the stored value is neither assignable nor convertible to the destination type, it is decoded through a JSON round trip instead.
+
 ### `txml`
 
 Normalize first when the payload is escaped or declares a Latin-1 header:
@@ -77,6 +84,7 @@ Recent changes to consider if the library already has consumers:
 - `info.Info.Get` returns `nil` when the map itself is `nil`.
 - `info.Info` now provides `Lookup*` helpers for explicit contracts.
 - `async.Container` now exposes `TrySet` to avoid panics on invalid keys.
+- `async.Container.Get` returns a deep copy of the stored value (v0.2.0); before, slices, maps and pointers were shared between the container and every caller.
 - `async.Container.Get` quotes the key in its not-found error (`key ("missing")`), so control characters in untrusted keys are escaped.
 - `txml.XMLString.Decode` now decodes directly into the caller-provided destination pointer.
 
