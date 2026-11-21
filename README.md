@@ -78,3 +78,7 @@ Recent changes to consider if the library already has consumers:
 - `info.Info` now provides `Lookup*` helpers for explicit contracts.
 - `async.Container` now exposes `TrySet` to avoid panics on invalid keys.
 - `txml.XMLString.Decode` now decodes directly into the caller-provided destination pointer.
+
+## License
+
+Released under the [MIT License](LICENSE).
