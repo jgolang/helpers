@@ -220,3 +220,51 @@ func FuzzContainerGetSliceIntoArray(f *testing.F) {
 		}
 	})
 }
+
+func TestContainerGetMissingKeyQuotesKey(t *testing.T) {
+	populated := &Container{}
+	populated.Set("present", "value", nil)
+
+	tests := []struct {
+		name      string
+		container *Container
+		key       interface{}
+		want      string
+	}{
+		{
+			name:      "line break in key, empty container",
+			container: &Container{},
+			key:       "a\nlevel=ERROR msg=forged",
+			want:      `container: item not found, key ("a\nlevel=ERROR msg=forged")`,
+		},
+		{
+			name:      "line break in key, other keys stored",
+			container: populated,
+			key:       "a\nlevel=ERROR msg=forged",
+			want:      `container: item not found, key ("a\nlevel=ERROR msg=forged")`,
+		},
+		{
+			name:      "carriage return and escape sequence in key",
+			container: populated,
+			key:       "a\r\x1b[31mforged",
+			want:      `container: item not found, key ("a\r\x1b[31mforged")`,
+		},
+		{
+			name:      "integer key",
+			container: populated,
+			key:       65,
+			want:      `container: item not found, key ("65")`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got string
+			err := tt.container.Get(tt.key, &got)
+
+			if err == nil || err.Error() != tt.want {
+				t.Fatalf("Get() error = %v, want %s", err, tt.want)
+			}
+		})
+	}
+}

@@ -77,6 +77,7 @@ Recent changes to consider if the library already has consumers:
 - `info.Info.Get` returns `nil` when the map itself is `nil`.
 - `info.Info` now provides `Lookup*` helpers for explicit contracts.
 - `async.Container` now exposes `TrySet` to avoid panics on invalid keys.
+- `async.Container.Get` quotes the key in its not-found error (`key ("missing")`), so control characters in untrusted keys are escaped.
 - `txml.XMLString.Decode` now decodes directly into the caller-provided destination pointer.
 
 ## License

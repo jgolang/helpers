@@ -56,14 +56,9 @@ func (c *Container) Get(key interface{}, value interface{}) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	// content:
-	if c.content == nil {
-		return fmt.Errorf("container: item not found, key (%v)", key)
-	}
-
 	content, ok := c.content[key]
 	if !ok {
-		return fmt.Errorf("container: item not found, key (%v)", key)
+		return notFoundError(key)
 	}
 
 	if err := assignValue(value, content); err != nil {
@@ -75,6 +70,12 @@ func (c *Container) Get(key interface{}, value interface{}) error {
 	}
 
 	return nil
+}
+
+// notFoundError quotes the key so that a key from untrusted input cannot
+// inject line breaks or other control characters into logged error text.
+func notFoundError(key interface{}) error {
+	return fmt.Errorf("container: item not found, key (%q)", fmt.Sprint(key))
 }
 
 func validateKey(key interface{}) error {
