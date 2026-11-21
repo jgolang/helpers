@@ -50,6 +50,26 @@ if err := clean.Decode(&out); err != nil {
 }
 ```
 
+`CorrectXML` unescapes HTML entities across the whole document, so use it only for fully escaped payloads. When a Latin-1 declaration is present, only the `encoding` value of the `<?xml …?>` declaration is rewritten to `utf-8`; text content is left as is.
+
+On a mixed payload (real markup with an escaped document inside an element), entities that belong to the outer level are unescaped too: `&amp;` becomes a bare `&` and `Decode` fails with a syntax error, and escaped markup in text such as `&lt;b&gt;` becomes real elements. Decode such payloads in two steps instead, without `CorrectXML`:
+
+```go
+type envelope struct {
+    Body string `xml:"body"` // holds the escaped inner document
+}
+
+var outer envelope
+if err := txml.XMLString(payload).Decode(&outer); err != nil {
+    return err
+}
+
+var out Response
+if err := txml.XMLString(outer.Body).Decode(&out); err != nil {
+    return err
+}
+```
+
 ## Compatibility
 
 Recent changes to consider if the library already has consumers:
