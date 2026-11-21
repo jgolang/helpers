@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 )
@@ -14,6 +15,8 @@ import (
 type Result string
 
 // CorrectXML normalizes escaped markup and converts declared ISO-8859-1 payloads to UTF-8.
+// It unescapes the whole document, so it is meant for fully escaped payloads;
+// see the README for payloads that mix real and escaped markup.
 func (r Result) CorrectXML() XMLString {
 	xmlStr := string(r)
 	xmlStr = html.UnescapeString(xmlStr)
@@ -23,8 +26,7 @@ func (r Result) CorrectXML() XMLString {
 			xmlStr = latin1ToUTF8(xmlStr)
 		}
 
-		xmlStr = strings.ReplaceAll(xmlStr, "ISO-8859-1", "utf-8")
-		xmlStr = strings.ReplaceAll(xmlStr, "iso-8859-1", "utf-8")
+		xmlStr = rewriteDeclaredEncoding(xmlStr)
 	}
 
 	return XMLString(xmlStr)
@@ -55,6 +57,19 @@ func declaresLatin1(xmlStr string) bool {
 	lower := strings.ToLower(xmlStr)
 	return strings.Contains(lower, "encoding=\"iso-8859-1\"") ||
 		strings.Contains(lower, "encoding='iso-8859-1'")
+}
+
+// latin1Declaration matches the encoding attribute of the XML declaration only,
+// so text content that mentions the charset name is left untouched.
+var latin1Declaration = regexp.MustCompile(`(?i)(<\?xml[^>]*?\bencoding\s*=\s*["'])iso-8859-1(["'])`)
+
+func rewriteDeclaredEncoding(xmlStr string) string {
+	match := latin1Declaration.FindStringSubmatchIndex(xmlStr)
+	if match == nil {
+		return xmlStr
+	}
+
+	return xmlStr[:match[3]] + "utf-8" + xmlStr[match[4]:]
 }
 
 func latin1ToUTF8(value string) string {

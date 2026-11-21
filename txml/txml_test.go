@@ -48,3 +48,54 @@ func TestXMLStringDecodeRejectsNilDestination(t *testing.T) {
 		t.Fatalf("Decode() expected nil destination error")
 	}
 }
+
+func TestCorrectXMLRewritesSingleQuotedDeclaration(t *testing.T) {
+	raw := Result("<?xml version='1.0' encoding='iso-8859-1'?><user><name>alice</name></user>")
+
+	got := raw.CorrectXML()
+	want := XMLString("<?xml version='1.0' encoding='utf-8'?><user><name>alice</name></user>")
+
+	if got != want {
+		t.Fatalf("CorrectXML() = %q, want %q", got, want)
+	}
+}
+
+func TestCorrectXMLPreservesEncodingNameInContent(t *testing.T) {
+	raw := Result("<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?><doc><note>Sent as ISO-8859-1 or iso-8859-1</note></doc>")
+
+	got := raw.CorrectXML()
+	want := XMLString("<?xml version=\"1.0\" encoding=\"utf-8\"?><doc><note>Sent as ISO-8859-1 or iso-8859-1</note></doc>")
+
+	if got != want {
+		t.Fatalf("CorrectXML() = %q, want %q", got, want)
+	}
+}
+
+// CorrectXML unescapes the whole document, so it is meant for fully escaped
+// payloads. The two tests below pin what happens to entities that belong to
+// the outer level of a mixed payload.
+
+func TestCorrectXMLOuterAmpersandEntityBreaksDecode(t *testing.T) {
+	type user struct {
+		Name string `xml:"name"`
+	}
+	raw := Result("<user><name>Tom &amp; Jerry</name></user>")
+	var got user
+
+	err := raw.CorrectXML().Decode(&got)
+
+	if err == nil {
+		t.Fatalf("Decode() expected syntax error for a bare '&', got %+v", got)
+	}
+}
+
+func TestCorrectXMLEscapedMarkupInTextBecomesElements(t *testing.T) {
+	raw := Result("<user><name>&lt;b&gt;bold&lt;/b&gt;</name></user>")
+
+	got := raw.CorrectXML()
+	want := XMLString("<user><name><b>bold</b></name></user>")
+
+	if got != want {
+		t.Fatalf("CorrectXML() = %q, want %q", got, want)
+	}
+}
