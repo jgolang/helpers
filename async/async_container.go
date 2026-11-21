@@ -46,8 +46,8 @@ func (c *Container) TrySet(key interface{}, value interface{}, err error) error 
 	return nil
 }
 
-// Get copies the stored value into dst and returns any error associated with the key.
-// dst must be a non-nil pointer.
+// Get copies the stored value into value and returns any error associated with the key.
+// value must be a non-nil pointer.
 func (c *Container) Get(key interface{}, value interface{}) error {
 	if err := validateKey(key); err != nil {
 		return err
@@ -115,6 +115,9 @@ func assignValue(dst interface{}, src interface{}) error {
 	}
 
 	if srcValue.Type().ConvertibleTo(dstElem.Type()) {
+		if err := checkSliceToArrayLength(srcValue, dstElem.Type()); err != nil {
+			return err
+		}
 		dstElem.Set(srcValue.Convert(dstElem.Type()))
 		return nil
 	}
@@ -125,4 +128,27 @@ func assignValue(dst interface{}, src interface{}) error {
 	}
 
 	return json.Unmarshal(buf, dst)
+}
+
+// checkSliceToArrayLength reports the case where reflect's Convert would panic:
+// converting a slice to an array, or to a pointer to an array, that is longer
+// than the slice.
+func checkSliceToArrayLength(src reflect.Value, dstType reflect.Type) error {
+	if src.Kind() != reflect.Slice {
+		return nil
+	}
+
+	arrayType := dstType
+	if arrayType.Kind() == reflect.Ptr {
+		arrayType = arrayType.Elem()
+	}
+	if arrayType.Kind() != reflect.Array {
+		return nil
+	}
+
+	if src.Len() < arrayType.Len() {
+		return fmt.Errorf("container: cannot convert slice with length %d to %s", src.Len(), dstType)
+	}
+
+	return nil
 }

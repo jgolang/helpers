@@ -151,3 +151,72 @@ func TestContainerAcceptsHashableInterfaceKeyValue(t *testing.T) {
 		})
 	}
 }
+
+func TestContainerGetSliceIntoArray(t *testing.T) {
+	tests := []struct {
+		name    string
+		length  int
+		wantErr bool
+	}{
+		{name: "empty slice", length: 0, wantErr: true},
+		{name: "shorter slice", length: 3, wantErr: true},
+		{name: "same length", length: 4, wantErr: false},
+		{name: "longer slice", length: 5, wantErr: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			container := &Container{}
+			stored := make([]int, tt.length)
+			for i := range stored {
+				stored[i] = i + 1
+			}
+			container.Set("numbers", stored, nil)
+
+			var got [4]int
+			err := container.Get("numbers", &got)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("Get() expected length error, got %v", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Get() error = %v", err)
+			}
+			if got != [4]int{1, 2, 3, 4} {
+				t.Fatalf("Get() = %v, want [1 2 3 4]", got)
+			}
+		})
+	}
+}
+
+func TestContainerGetSliceIntoArrayPointer(t *testing.T) {
+	container := &Container{}
+	container.Set("numbers", make([]int, 3), nil)
+
+	var got *[4]int
+	if err := container.Get("numbers", &got); err == nil {
+		t.Fatalf("Get() expected length error, got %v", got)
+	}
+}
+
+func FuzzContainerGetSliceIntoArray(f *testing.F) {
+	f.Add(0)
+	f.Add(3)
+	f.Add(4)
+	f.Fuzz(func(t *testing.T, length int) {
+		if length < 0 || length > 8 {
+			return
+		}
+		container := &Container{}
+		container.Set("numbers", make([]int, length), nil)
+
+		var got [4]int
+		err := container.Get("numbers", &got)
+		if (err != nil) != (length < len(got)) {
+			t.Fatalf("Get() with length %d: error = %v", length, err)
+		}
+	})
+}
